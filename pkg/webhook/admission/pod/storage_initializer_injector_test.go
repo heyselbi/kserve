@@ -3006,6 +3006,88 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 				},
 			},
 		},
+		"StorageInitializerUidNotSetIfIstioInitPresent": {
+			original: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						constants.StorageInitializerSourceUriInternalAnnotationKey: "gs://foo",
+						constants.IstioSidecarStatusAnnotation:                     "{\"containers\": [\"istio-sidecar\"]}",
+						constants.IstioInterceptionModeAnnotation:                  constants.IstioInterceptModeRedirect,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: constants.InferenceServiceContainerName,
+						},
+						{
+							Name: "istio-sidecar",
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: ptr.Int64(501),
+							},
+						},
+					},
+					InitContainers: []v1.Container{
+						{
+							Name: constants.IstioInitContainerName,
+						},
+					},
+				},
+			},
+			expected: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						constants.StorageInitializerSourceUriInternalAnnotationKey: "gs://foo",
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: constants.InferenceServiceContainerName,
+							VolumeMounts: []v1.VolumeMount{
+								{
+									Name:      "kserve-provision-location",
+									MountPath: constants.DefaultModelLocalMountPath,
+									ReadOnly:  true,
+								},
+							},
+						},
+						{
+							Name: "istio-sidecar",
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: ptr.Int64(501),
+							},
+						},
+					},
+					InitContainers: []v1.Container{
+						{
+							Name: constants.IstioInitContainerName,
+						},
+						{
+							Name:                     "storage-initializer",
+							Image:                    StorageInitializerContainerImage + ":" + StorageInitializerContainerImageVersion,
+							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Resources:                resourceRequirement,
+							TerminationMessagePolicy: "FallbackToLogsOnError",
+							VolumeMounts: []v1.VolumeMount{
+								{
+									Name:      "kserve-provision-location",
+									MountPath: constants.DefaultModelLocalMountPath,
+								},
+							},
+						},
+					},
+					Volumes: []v1.Volume{
+						{
+							Name: "kserve-provision-location",
+							VolumeSource: v1.VolumeSource{
+								EmptyDir: &v1.EmptyDirVolumeSource{},
+							},
+						},
+					},
+				},
+			},
+		},
 		"StorageInitializerUidNotSetIfProxyMissing": {
 			original: &v1.Pod{
 				ObjectMeta: metav1.ObjectMeta{

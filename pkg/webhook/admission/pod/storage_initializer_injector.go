@@ -514,14 +514,16 @@ func (mi *StorageInitializerInjector) SetIstioCniSecurityContext(pod *v1.Pod) er
 			storageInitializerContainer.SecurityContext.RunAsUser = ptr.Int64(uid)
 		}
 	} else {
-		// When Istio CNI is enabled, a sidecar.istio.io/interceptionMode annotation
-		// is injected to the pod.
-		istioInterceptionMode, istioCniEnabled := pod.Annotations[constants.IstioInterceptionModeAnnotation]
-		if !istioCniEnabled {
-			// If CNI is disabled, there is no need to touch the security context of the pod.
-			return nil
+		// When Istio CNI is disabled, the istio-init container would be present.
+		// If it is there, there is no need to touch the security context of the pod.
+		// Reference: https://github.com/istio/istio/blob/d533e52acc54b4721d23b1332aea1f234ecbe3e6/pkg/config/analysis/analyzers/maturity/maturity.go#L134
+		for _, container := range pod.Spec.InitContainers {
+			if container.Name == constants.IstioInitContainerName {
+				return nil
+			}
 		}
 
+		// When Istio CNI is enabled, a sidecar.istio.io/interceptionMode annotation is injected to the pod.
 		// There are three interception modes: REDIRECT, TPROXY and NONE.
 		// It only makes sense to adjust the security context of the storage initializer if REDIRECT mode is
 		// observed, because the Istio sidecar would be injected and traffic would be sent to it, but the
@@ -531,6 +533,7 @@ func (mi *StorageInitializerInjector) SetIstioCniSecurityContext(pod *v1.Pod) er
 		// The TPROXY mode can also be set by the user. If this is the case, it is not possible to infer the setup.
 		// Lastly, if interception mode is NONE the traffic is not being captured. This is an advanced mode, and
 		// it is not possible to infer the setup.
+		istioInterceptionMode := pod.Annotations[constants.IstioInterceptionModeAnnotation]
 		if istioInterceptionMode != constants.IstioInterceptModeRedirect {
 			return nil
 		}
